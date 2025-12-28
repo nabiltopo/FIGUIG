@@ -1,0 +1,82 @@
+{
+  "axisId": "socioeco",
+  "axisLabel": "Axe socio-économique",
+  "source": "RGPH 2024 — Indicateurs communaux (extrait GeoJSON)",
+  "lastUpdate": "2025-12-25",
+  "kpis": [
+    {
+      "id": "population",
+      "label": "Population (2024)",
+      "unit": "hab",
+      "field": [
+        "Pop2024",
+        "population",
+        "Population",
+        "POP_2024",
+        "pop2024"
+      ],
+      "aggregation": "sum",
+      "format": "int"
+    },
+    {
+      "id": "pauvrete",
+      "label": "Indice/Taux de pauvreté",
+      "unit": "%",
+      "field": [
+        "pauvrete",
+        "Taux_pauvrete",
+        "taux_pauverete",
+        "indice-pauvrete"
+      ],
+      "aggregation": "avg",
+      "format": "pct"
+    },
+    {
+      "id": "chomage",
+      "label": "Taux de chômage",
+      "unit": "%",
+      "field": [
+        "chomage",
+        "taux-chaumage",
+        "taux_chomage"
+      ],
+      "aggregation": "avg",
+      "format": "pct"
+    },
+    {
+      "id": "analphabetisme",
+      "label": "Taux d’analphabétisme",
+      "unit": "%",
+      "field": [
+        "analphabetisme",
+        "taux-analphabetisme",
+        "taux_analphabetisme"
+      ],
+      "aggregation": "avg",
+      "format": "pct"
+    },
+    {
+      "id": "eau",
+      "label": "Accès à l’eau",
+      "unit": "%",
+      "field": [
+        "eau",
+        "eau-potable",
+        "acces_eau"
+      ],
+      "aggregation": "avg",
+      "format": "pct"
+    },
+    {
+      "id": "electricite",
+      "label": "Accès à l’électricité",
+      "unit": "%",
+      "field": [
+        "electricite",
+        "acces_electricite"
+      ],
+      "aggregation": "avg",
+      "format": "pct"
+    }
+  ]
+}
