@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<title>Carte Interactive de la Province de Figuig</title>
+<link crossorigin="" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
+<script crossorigin="" src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/chroma-js@2.4.2/chroma.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link href="css/tokens.css" rel="stylesheet"/><link href="css/base.css" rel="stylesheet"/><link href="css/dashboard.css" rel="stylesheet"/></head>
+<body>
+<div class="app">
+<header class="header">
+<div class="header-left">
+<img alt="Logo Ministère" class="logo" onerror="this.style.display='none'" src="assets/logos/ministere.png"/>
+<div class="titlewrap">
+<div class="titleline">
+<span class="pill">RGPH-style</span>
+<div class="title">Carte Interactive de la Province de Figuig</div>
+</div>
+<div class="subtitle">Fond satellite + choroplèthe + légende interactive + distribution</div>
+</div>
+</div>
+<div class="header-actions">
+<button class="iconbtn" id="btnToggleSide" title="Afficher / masquer le panneau">☰</button>
+<button class="iconbtn" id="btnFullscreen" title="Mode plein écran">⛶</button>
+</div>
+<div class="header-right">
+<img alt="Logo Maroc" class="logo" onerror="this.style.display='none'" src="assets/logos/maroc.png"/>
+</div>
+</header>
+<div id="fileProtocolBanner"><strong>Mode <code>file://</code> détecté : le navigateur bloque le chargement GeoJSON (CORS).</strong><div>Solution : lance un serveur local dans <code>D:\webmapping-figuig</code>, puis ouvre <code>http://localhost:8080/</code>.</div><div class="rowbtn"><a href="#" id="copyBat">Copier start_server.bat</a><a href="#" id="copyUrl">Copier URL http://localhost:8080/</a></div></div>
+<div class="app-shell">
+<aside id="communeSidebar" class="commune-sidebar">
+<div id="globalStatsDock"></div>
+<div class="cs-head">
+<div class="cs-title">Fiche commune</div>
+<div id="csCommuneName" class="cs-commune">Figuig</div>
+<div class="cs-search">
+<input id="csSearch" type="search" placeholder="Rechercher une commune..." list="csCommuneList"/>
+<datalist id="csCommuneList"></datalist>
+</div>
+</div>
+<div id="csGrid" class="cs-grid"></div>
+</aside>
+<div class="main">
+<div class="map-panel">
+<div id="map"></div>
+<div class="commune-pop" id="communePop" aria-hidden="true">
+<div class="commune-pop-head">
+<div class="commune-pop-title">
+<div class="commune-pop-kicker">Fiche commune</div>
+<div class="commune-pop-name" id="communePopName">—</div>
+</div>
+<button class="commune-pop-close" id="communePopClose" title="Fermer">×</button>
+</div>
+
+<div class="commune-pop-body" id="communePopBody"></div>
+</div>
+<div class="map-bottom-panel" id="linesPanel">
+<div class="lines-card">
+<div class="lines-head kpi-compare-header">
+<div class="lines-title">Comparaison territoriale des indicateurs clés</div>
+<div class="family-chips">
+<span class="family-chip" data-family="socio">Socio-économique</span>
+<span class="family-chip" data-family="services">Services de base</span>
+<span class="family-chip" data-family="demo">Pression démographique</span>
+</div>
+<div class="lines-controls indicator-toggles" id="linesControls"></div>
+</div>
+<div class="lines-canvas">
+<canvas id="communeLinesChart"></canvas>
+</div>
+</div>
+</div>
+</div>
+<aside class="side" id="sidepanel">
+<div class="side-inner">
+<section class="card" id="indicatorCard">
+<div class="card-head">
+<div class="card-title">Indicateurs</div>
+<div style="display:flex; gap:8px; align-items:center;">
+<button class="iconbtn" id="btnCollapseSide" title="Masquer le panneau">×</button>
+</div>
+</div>
+<div class="row">
+<label for="fieldSelect">Indicateur</label>
+<select id="fieldSelect"></select>
+</div>
+<div class="hint">
+              Légende interactive : clic = filtrer une classe. Shift+clic = isoler une classe.
+              Cliquez une commune pour zoomer + popup détaillé.
+            </div>
+</section>
+<section class="card" id="communeChartCard">
+<div class="legend-chart-head">
+<span class="legend-chart-title">Communes (classées)</span>
+<button class="btn" id="chartModeBtn" title="Tri des communes" type="button">Tri décroissant</button>
+</div>
+<div class="legend-chart-canvas">
+<canvas id="legendChart"></canvas>
+</div>
+</section>
+<section class="card" id="legendCard">
+<div class="legend-title">
+<strong id="legendTitle">Légende</strong>
+<span id="legendMeta">—</span>
+<button class="btn" id="resetFilterBtn" title="Réinitialise le filtre de légende">Réinitialiser Filtre</button>
+</div>
+<div class="legend-items" id="legendItems"></div>
+</section>
+<section class="card" id="statsCard">
+<div class="card-head kpi-head">
+<div class="card-title">Statistiques Globales</div>
+<div class="kpi-sub">RGPH</div>
+</div>
+<div class="kpi-grid">
+<div class="kpi-card">
+<div class="kpi-label">Population totale 2024</div>
+<div class="kpi-value" id="kpiPopulation">—</div>
+</div>
+<div class="kpi-card">
+<div class="kpi-label">Pauvrete moyenne</div>
+<div class="kpi-value" id="kpiPauvrete">—</div>
+</div>
+<div class="kpi-card">
+<div class="kpi-label">Chomage moyen</div>
+<div class="kpi-value" id="kpiChomage">—</div>
+</div>
+<div class="kpi-card">
+<div class="kpi-label">Analphabetisme moyen</div>
+<div class="kpi-value" id="kpiAnalphabetisme">—</div>
+</div>
+</div>
+</section>
+<section class="card" id="radarCard">
+<div class="card-head">
+<div class="card-title">Comparaison des communes</div>
+<div class="kpi-sub">Max 3 communes</div>
+</div>
+<div class="radar-wrap">
+<canvas id="radarChart"></canvas>
+</div>
+<div class="radar-hint">Cliquez une commune pour l'ajouter/retirer (FIFO 3).</div>
+</section>
+<section class="card" id="podiumCard">
+<div class="podium-head">
+<div class="podium-title">KPI 360 - Top 3 communes</div>
+<div class="podium-tabs" id="podiumTabs"></div>
+</div>
+<div class="radial-kpi-wrap">
+<canvas id="podiumChart"></canvas>
+</div>
+</section>
+<section class="card" id="dataCard">
+<div class="card-head">
+<div class="card-title">Donnees</div>
+<div class="data-actions">
+<input class="table-search" id="tableSearch" placeholder="Filtrer..." type="text"/>
+<button class="btn" id="exportBtn" type="button">Exporter les donnees</button>
+</div>
+</div>
+<div class="table-wrap">
+<table class="data-table" id="dataTable">
+<thead>
+<tr>
+<th data-field="commune">Commune</th>
+<th data-field="population">Population</th>
+<th data-field="pauvrete">Pauvrete</th>
+<th data-field="chomage">Chomage</th>
+<th data-field="analphabetisme">Analphabetisme</th>
+<th data-field="eau">Eau courante</th>
+<th data-field="electricite">Electricite</th>
+</tr>
+</thead>
+<tbody id="dataTbody"></tbody>
+</table>
+</div>
+</section>
+</div>
+</aside>
+</div>
+</div>
+</div>
+<script defer="True" src="js/kpi.js"></script>
+<script defer="True" src="js/app.js"></script></body>
+</html>
