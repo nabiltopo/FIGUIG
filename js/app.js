@@ -143,6 +143,48 @@
   L.control.scale({ metric: true, imperial: false }).addTo(map);
   L.control.layers({ "Satellite (Esri)": esriSat, "OSM": osm }, null, { position: "topleft" }).addTo(map);
 
+  function createMapLegendControl(){
+    if (!map || mapLegendControl) return;
+    mapLegendControl = L.control({ position: "bottomright" });
+    mapLegendControl.onAdd = () => {
+      const div = L.DomUtil.create("div", "map-legend");
+      mapLegendEl = div;
+      L.DomEvent.disableClickPropagation(div);
+      L.DomEvent.disableScrollPropagation(div);
+      return div;
+    };
+    mapLegendControl.addTo(map);
+  }
+
+  function renderMapLegend(){
+    if (!map) return;
+    if (!mapLegendControl) createMapLegendControl();
+    if (!mapLegendEl) return;
+    const ranges = Array.isArray(classRanges) ? classRanges : [];
+    let html = "<div class=\"map-legend-title\">L\u00e9gende</div>";
+    html += "<div class=\"map-legend-section\">";
+    html += "<div class=\"map-legend-section-title\">Classes des communes</div>";
+    if (ranges.length){
+      ranges.forEach((range) => {
+        html += "<div class=\"map-legend-item\">" +
+          "<span class=\"map-legend-swatch\" style=\"background:" + range.color + "\"></span>" +
+          "<span class=\"map-legend-label\">" + escapeHtml(range.label) + "</span>" +
+          "</div>";
+      });
+    } else {
+      html += "<div class=\"map-legend-empty\">Aucune classe</div>";
+    }
+    html += "</div>";
+    html += "<div class=\"map-legend-section\">";
+    html += "<div class=\"map-legend-section-title\">Symboles</div>";
+    html += "<div class=\"map-legend-item\">" +
+      "<img class=\"map-legend-icon\" src=\"assets/formes/red_star.png\" alt=\"\">" +
+      "<span class=\"map-legend-label\">Chef-lieu de commune</span>" +
+      "</div>";
+    html += "</div>";
+    mapLegendEl.innerHTML = html;
+  }
+
   // Data + choropleth
   const GEOJSON_URL = null; // resolved via ?geo=... or fallback candidates
 
@@ -150,6 +192,8 @@
   let axisSampleProps = null;
   let geoLayer = null;
   let boundaryLayer = null;
+  let mapLegendControl = null;
+  let mapLegendEl = null;
   const mapNameToLayer = new Map();
   let appReadyFired = false;
 
@@ -254,13 +298,17 @@
     population_normalisee: { label: "Population", family: "demo", color: "#6d28d9", dataKey: "population", isPercent: false }
   };
   const INDICATOR_COLORS = {
-    pauvrete: "#C62828",
-    chomage: "#EF6C00",
-    analphabetisme: "#AD1457",
-    acces_eau: "#1565C0",
-    acces_electricite: "#00838F",
-    acces_assainissement: "#2E7D32",
-    population_normalisee: "#6A1B9A"
+    pauvrete: "#FACC15",
+    chomage: "#005F73",
+    analphabetisme: "#5B21B6",
+    acces_eau: "#1D4ED8",
+    acces_electricite: "#F97316",
+    acces_assainissement: "#16A34A",
+    population_normalisee: "#000000"
+  };
+  const INDICATOR_DASHES = {
+    chomage: [8, 5],
+    analphabetisme: [10, 4, 2, 4]
   };
   const KPI_FAMILIES = {
     socio: { label: "Pressions socio-\u00e9conomiques", color: "#D64545", accent: "#F59E0B" },
@@ -434,6 +482,45 @@
     if (!Number.isFinite(n)) return NaN;
     if (isPercentField && !hasPct && n > 0 && n <= 1) n = n * 100;
     return n;
+  }
+
+  const DEBUG_GAUGE_VALUES = false;
+  const debugGaugeCommuneNames = new Set();
+
+  function getPercentValue(raw){
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === "number" && Number.isFinite(raw)){
+      if (raw <= 1) return raw * 100;
+      return raw;
+    }
+    const text = String(raw).trim();
+    if (!text) return null;
+    const hasPct = text.includes("%");
+    let n = Number(text.replace(/\s+/g, "").replace("%", "").replace(",", "."));
+    if (!Number.isFinite(n)){
+      n = Number(text.replace(",", ".").replace(/[^0-9.\-]/g, ""));
+    }
+    if (!Number.isFinite(n)) return null;
+    if (!hasPct && n <= 1) return n * 100;
+    return n;
+  }
+
+  function logGaugeValues(name, items){
+    if (!DEBUG_GAUGE_VALUES) return;
+    if (!name) return;
+    if (!debugGaugeCommuneNames.has(name)){
+      if (debugGaugeCommuneNames.size >= 3) return;
+      debugGaugeCommuneNames.add(name);
+    }
+    const rows = items.map((item) => ({
+      kpi: item.key,
+      raw: item.rawValue,
+      percent: item.percentValue,
+      gauge: item.gaugeValuePct,
+      display: item.gaugeDisplayText
+    }));
+    console.info("[GAUGE] raw -> final:", name);
+    try{ console.table(rows); } catch(_){ console.log(rows); }
   }
 
   function safeJsonSize(obj){
@@ -634,12 +721,22 @@
       const higherIsWorse = direction === "higher_is_worse";
       const rawValue = row ? row[kpiKey] : null;
       const isPercentField = unit === "%";
-      const value = isNumber(rawValue) ? rawValue : parseNumberSmart(rawValue, isPercentField);
+      const percentValue = isPercentField ? getPercentValue(rawValue) : null;
+      const value = isPercentField
+        ? (Number.isFinite(percentValue) ? percentValue : NaN)
+        : (isNumber(rawValue) ? rawValue : parseNumberSmart(rawValue, isPercentField));
       const stats = computeKpiStats(rowsAll, kpiKey, isPercentField);
       const baseScore = normalizeMinMax(value, stats.min, stats.max);
+      const scoreBase = isNumber(baseScore) ? baseScore : null;
       const scorePct = isNumber(baseScore)
         ? Math.max(0, Math.min(100, higherIsWorse ? (100 - baseScore) : baseScore))
         : null;
+      const gaugeValuePct = isPercentField
+        ? (Number.isFinite(percentValue) ? Math.max(0, Math.min(100, percentValue)) : null)
+        : scoreBase;
+      const gaugeDisplayText = isPercentField
+        ? formatPercent(percentValue)
+        : formatInt(value);
       const rankInfo = row ? computeKpiRank(rowsAll, kpiKey, higherIsWorse, row.name) : null;
       const delta = isNumber(value) && isNumber(stats.mean) ? (value - stats.mean) : null;
       const theme = entry && entry.palette === "blue" ? "blue" : "traffic";
@@ -653,12 +750,19 @@
         icon,
         familyId,
         value,
+        rawValue,
+        percentValue,
+        direction,
+        scoreBase,
         scorePct,
+        gaugeValuePct,
+        gaugeDisplayText,
         rank: rankInfo ? rankInfo.rank : null,
         total: rankInfo ? rankInfo.total : null,
         delta
       };
     });
+    logGaugeValues(name, items);
     return { name, items };
   }
 
@@ -771,7 +875,9 @@
 
       familyItems.forEach((item) => {
         const value = item.value;
-        const score = item.scorePct;
+        const gaugeValue = item.gaugeValuePct;
+        const gaugeText = item.gaugeDisplayText || MISSING;
+        const direction = item.direction || "higher_is_better";
 
         let sub = "";
         if (isNumber(value) && item.rank){
@@ -785,8 +891,12 @@
           ? "this.onerror=null;this.src='" + fallbackUrl + "';this.classList.add('is-fallback');"
           : "this.style.display='none';";
         const gaugeSvg = (typeof window !== "undefined" && typeof window.renderGaugeSVG === "function")
-          ? window.renderGaugeSVG({ valuePct: isNumber(score) ? score : NaN })
-          : renderGaugeSVG(score, item.theme);
+          ? window.renderGaugeSVG({
+            valuePct: isNumber(gaugeValue) ? gaugeValue : NaN,
+            direction,
+            displayText: gaugeText
+          })
+          : renderGaugeSVG(isNumber(gaugeValue) ? gaugeValue : NaN, item.theme);
 
         const card =
           "<div class=\"commune-kpi-card\" data-kpi=\"" + item.key + "\" data-family=\"" + familyId + "\">" +
@@ -799,7 +909,7 @@
             "</div>" +
             "<div class=\"commune-kpi-gauge\">" + gaugeSvg + "</div>" +
             "<div class=\"commune-kpi-foot\">" +
-              "<div class=\"commune-kpi-score\">" + (isNumber(score) ? Math.round(score) + "%" : MISSING) + "</div>" +
+            "<div class=\"commune-kpi-score\">" + escapeHtml(gaugeText) + "</div>" +
               "<div class=\"commune-kpi-raw\">" + escapeHtml(formatKpiValue(value, item.unit)) + "</div>" +
             "</div>" +
           "</div>";
@@ -818,7 +928,7 @@
       globalStatsDockEl.appendChild(statsCardEl);
     }
     const titleEl = statsCardEl.querySelector(".card-title");
-    if (titleEl) titleEl.textContent = "Statistiques Globales Province de Figuig";
+    if (titleEl) titleEl.textContent = "Statistiques Globales ";
   }
 
   function refreshCommuneList(){
@@ -1852,10 +1962,13 @@
         }
       });
 
-      ctx.fillStyle = opts.centerColor || "#fde68a";
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, Math.max(10, innerR - 6), 0, Math.PI * 2);
-      ctx.fill();
+      const centerFill = opts.centerColor;
+      if (centerFill && centerFill !== "transparent" && centerFill !== "none"){
+        ctx.fillStyle = centerFill;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, Math.max(10, innerR - 6), 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       drawCenterIcon(ctx, centerX, centerY - 6, Math.max(8, innerR * 0.28));
 
@@ -1866,6 +1979,12 @@
       drawWrappedText(ctx, opts.centerLabel || "", centerX, centerY + innerR * 0.1, innerR * 1.6, 12);
 
       const labelRadius = outerR + ringWidth * 0.8;
+      const labelOffsetTop = isNumber(opts.labelOffsetTop)
+        ? opts.labelOffsetTop
+        : Math.max(8, Math.round(ringWidth * 0.6));
+      const labelOffsetBottom = isNumber(opts.labelOffsetBottom)
+        ? opts.labelOffsetBottom
+        : Math.max(8, Math.round(ringWidth * 0.6));
       segments.forEach((seg) => {
         const pos = seg.position || "top";
         let x = centerX;
@@ -1873,7 +1992,7 @@
         let align = "center";
         if (pos === "top"){
           x = centerX;
-          y = centerY - labelRadius;
+          y = centerY - labelRadius - labelOffsetTop;
           align = "center";
         } else if (pos === "right"){
           x = centerX + labelRadius;
@@ -1881,7 +2000,7 @@
           align = "left";
         } else if (pos === "bottom"){
           x = centerX;
-          y = centerY + labelRadius;
+          y = centerY + labelRadius + labelOffsetBottom;
           align = "center";
         } else if (pos === "left"){
           x = centerX - labelRadius;
@@ -1953,7 +2072,10 @@
             tooltip: { enabled: false },
             radialKpi: {
               segments,
-              centerLabel: activeItem.name
+              centerLabel: activeItem.name,
+              centerColor: "transparent",
+              labelOffsetTop: 12,
+              labelOffsetBottom: 12
             }
           }
         },
@@ -1962,7 +2084,10 @@
     } else {
       podiumChart.options.plugins.radialKpi = {
         segments,
-        centerLabel: activeItem.name
+        centerLabel: activeItem.name,
+        centerColor: "transparent",
+        labelOffsetTop: 12,
+        labelOffsetBottom: 12
       };
       podiumChart.update();
     }
@@ -2122,7 +2247,9 @@
     const datasets = [];
     LINES_SERIES.forEach((series) => {
       const dataKey = series.dataKey || series.key;
+      const isPopulation = series.key === "population_normalisee";
       const color = INDICATOR_COLORS[series.key] || series.color;
+      const dash = INDICATOR_DASHES[series.key] || [];
       const rawValues = rows.map(r => (isNumber(r[dataKey]) ? r[dataKey] : null));
       if (!rawValues.some(isNumber)){
         console.warn("[KPI_FILTER] missing " + series.key);
@@ -2139,9 +2266,12 @@
         borderColor: color,
         backgroundColor: colorWithAlpha(color, 0.12),
         pointBackgroundColor: color,
-        pointRadius: 2,
-        pointHoverRadius: 3,
+        pointBorderColor: "#FFFFFF",
+        pointBorderWidth: 1,
+        pointRadius: isPopulation ? 3.5 : 2,
+        pointHoverRadius: isPopulation ? 4.5 : 3,
         borderWidth: 2,
+        borderDash: dash,
         tension: 0.25,
         spanGaps: false,
         fill: false,
@@ -2345,6 +2475,7 @@
 
       legendItemsEl.appendChild(div);
     });
+    renderMapLegend();
   }
 
   function rebuild(){

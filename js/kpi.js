@@ -53,24 +53,75 @@
       end.x.toFixed(2) + " " + end.y.toFixed(2);
   }
 
+  const GAUGE_CLASS_COLORS = {
+    low: "#F5C84C",
+    mid: "#F2994A",
+    high: "#EB5757",
+    vhigh: "#7A0C16"
+  };
+
+  function hexToRgb(hex){
+    const raw = String(hex || "").trim();
+    const match = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!match) return null;
+    let value = match[1];
+    if (value.length === 3){
+      value = value.split("").map((c) => c + c).join("");
+    }
+    const n = parseInt(value, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  function rgbToHex(r, g, b){
+    const toHex = (v) => v.toString(16).padStart(2, "0");
+    return "#" + toHex(r) + toHex(g) + toHex(b);
+  }
+
+  function mixChannel(a, b, t){
+    return Math.round(a + (b - a) * t);
+  }
+
+  function desaturateColor(hex, amount){
+    const rgb = hexToRgb(hex);
+    if (!rgb) return hex;
+    const neutral = { r: 244, g: 244, b: 245 };
+    const t = Number.isFinite(amount) ? amount : 0.45;
+    return rgbToHex(
+      mixChannel(rgb.r, neutral.r, t),
+      mixChannel(rgb.g, neutral.g, t),
+      mixChannel(rgb.b, neutral.b, t)
+    );
+  }
+
   function renderGaugeSVG(options){
     const opts = options || {};
     const valueRaw = Number(opts.valuePct);
     const valuePct = clampPercent(valueRaw);
+    const displayText = opts.displayText != null
+      ? String(opts.displayText)
+      : (Number.isFinite(valueRaw) ? Math.round(valueRaw) + "%" : "\u2014");
+    const ariaValue = opts.ariaValue != null ? String(opts.ariaValue) : displayText;
+    const direction = opts.direction === "higher_is_worse" ? "higher_is_worse" : "higher_is_better";
+    const inactiveMix = Number.isFinite(opts.inactiveMix) ? opts.inactiveMix : 0.45;
+    const baseColors = direction === "higher_is_worse"
+      ? [GAUGE_CLASS_COLORS.vhigh, GAUGE_CLASS_COLORS.high, GAUGE_CLASS_COLORS.mid, GAUGE_CLASS_COLORS.low]
+      : [GAUGE_CLASS_COLORS.low, GAUGE_CLASS_COLORS.mid, GAUGE_CLASS_COLORS.high, GAUGE_CLASS_COLORS.vhigh];
+    const defaultSegments = [
+      { from: 0, to: 25, color: baseColors[0] },
+      { from: 25, to: 50, color: baseColors[1] },
+      { from: 50, to: 75, color: baseColors[2] },
+      { from: 75, to: 100, color: baseColors[3] }
+    ];
     const segments = Array.isArray(opts.segments) && opts.segments.length
       ? opts.segments
-      : [
-        { from: 0, to: 40, color: "#E53935" },
-        { from: 40, to: 60, color: "#FB8C00" },
-        { from: 60, to: 100, color: "#1B9E77" }
-      ];
+      : defaultSegments;
     const minLabel = opts.minLabel != null ? String(opts.minLabel) : "0";
     const maxLabel = opts.maxLabel != null ? String(opts.maxLabel) : "100";
     const centerLabel = opts.centerLabel != null ? String(opts.centerLabel) : "";
     const subLabel = opts.subLabel != null ? String(opts.subLabel) : "";
     const ariaLabel = opts.ariaLabel != null
       ? String(opts.ariaLabel)
-      : (centerLabel ? (centerLabel + " " + (Number.isFinite(valueRaw) ? valueRaw : "")) : "Gauge");
+      : (centerLabel ? (centerLabel + " " + (ariaValue || "")) : "Gauge");
 
     const width = Number(opts.width) || 220;
     const height = Number(opts.height) || 130;
@@ -97,7 +148,12 @@
       endAngle = endAngle + gapDeg / 2;
       if (startAngle <= endAngle) return;
       const path = arcPath(cx, cy, radius, startAngle, endAngle);
-      svg += "<path d=\"" + path + "\" stroke=\"" + (seg.color || "#e5e7eb") +
+      const baseColor = seg.color || "#e5e7eb";
+      const isActive = Number.isFinite(valuePct)
+        ? (valuePct >= from && (valuePct < to || (to === 100 && valuePct === 100)))
+        : true;
+      const segColor = isActive ? baseColor : desaturateColor(baseColor, inactiveMix);
+      svg += "<path d=\"" + path + "\" stroke=\"" + segColor +
         "\" stroke-width=\"" + stroke + "\" />";
     });
     svg += "</g>";
@@ -108,16 +164,18 @@
       const needle = polarToCartesian(cx, cy, needleLen, angle);
       svg += "<line x1=\"" + cx.toFixed(2) + "\" y1=\"" + cy.toFixed(2) +
         "\" x2=\"" + needle.x.toFixed(2) + "\" y2=\"" + needle.y.toFixed(2) +
-        "\" stroke=\"#111827\" stroke-width=\"2\" />";
+        "\" stroke=\"rgba(255,255,255,0.75)\" stroke-width=\"4\" stroke-linecap=\"round\" />";
+      svg += "<line x1=\"" + cx.toFixed(2) + "\" y1=\"" + cy.toFixed(2) +
+        "\" x2=\"" + needle.x.toFixed(2) + "\" y2=\"" + needle.y.toFixed(2) +
+        "\" stroke=\"#111827\" stroke-width=\"2\" stroke-linecap=\"round\" />";
     }
     svg += "<circle cx=\"" + cx.toFixed(2) + "\" cy=\"" + cy.toFixed(2) +
       "\" r=\"4\" fill=\"#111827\" />";
 
-    const valueText = Number.isFinite(valueRaw) ? Math.round(valueRaw) + "%" : "\u2014";
     const valueY = cy - radius * 0.55;
     svg += "<text x=\"" + cx.toFixed(2) + "\" y=\"" + valueY.toFixed(2) +
       "\" text-anchor=\"middle\" font-size=\"16\" font-weight=\"800\" fill=\"#111827\">" +
-      escapeSvgText(valueText) + "</text>";
+      escapeSvgText(displayText) + "</text>";
 
     if (centerLabel){
       svg += "<text x=\"" + cx.toFixed(2) + "\" y=\"" + (valueY + 16).toFixed(2) +
